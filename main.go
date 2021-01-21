@@ -4,21 +4,31 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"golang.org/x/term"
+	"log"
 	"math/rand"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 func main() {
-	term_width := flag.Int("width", 80, "number of columns")
-	term_height := flag.Int("height", 20, "number of rows")
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	term_width, term_height, err := term.GetSize(0)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	flag.Parse()
 
-	var width = *term_width * 2
-	var height = *term_height * 2
-	var size = width * height
+	width := term_width * 2
+	height := term_height * 2
+	size := width * height
 
-	var board = make([]bool, size)
+	board := make([]bool, size)
 	for index := range board {
 		// TODO: Seed RNG.
 		if rand.Intn(2) == 0 {
@@ -26,7 +36,7 @@ func main() {
 		}
 	}
 
-	create_display(height)
+	fmt.Println("\033[?47h")
 
 	start := time.Now()
 
@@ -34,12 +44,19 @@ func main() {
 	var target_pause = 1.0 / float64(target_fps)
 
 	for {
-		elapsed := time.Now().Sub(start)
+		select {
+		case <-sigs:
+			fmt.Println("\033[?47l")
+			os.Exit(0)
+		default:
 
-		if elapsed.Seconds() > target_pause {
-			start = time.Now()
-			display(board, width, height)
-			board = next(board, size, width)
+			elapsed := time.Now().Sub(start)
+
+			if elapsed.Seconds() > target_pause {
+				start = time.Now()
+				display(board, width, height)
+				board = next(board, size, width)
+			}
 		}
 	}
 }
@@ -48,9 +65,8 @@ func next(board []bool, size int, width int) []bool {
 	var new_board = make([]bool, size)
 
 	for index := range board {
-		var neighbor_count = 0
+		neighbor_count := 0
 
-		// ???: Why doesn't this have a var?
 		// TODO: Un-Rustify this code. It's okay to have negative integers because
 		// the type is int, not usize.
 		neighbors := [8]int{
@@ -82,25 +98,17 @@ func next(board []bool, size int, width int) []bool {
 	return new_board
 }
 
-func create_display(height int) {
-	var count = 0
-	for count != height/2 {
-		fmt.Print("\n")
-		count += 1
-	}
-}
-
 func display(board []bool, width int, height int) {
 	var output bytes.Buffer
-	var size = width * height
+	size := width * height
 
 	for index := range board {
 		if ((index % (width * 2)) >= width) && index%2 == 1 {
 			// TODO: Fix bad variable names
-			var up = board[(index+size-width)%size]   // up
-			var me = board[index]                     // current
-			var le = board[(index+size-1)%size]       // left
-			var lu = board[(index+size-width-1)%size] // left up
+			up := board[(index+size-width)%size]   // up
+			me := board[index]                     // current
+			le := board[(index+size-1)%size]       // left
+			lu := board[(index+size-width-1)%size] // left up
 
 			// I really wish we had pattern matching here...
 			if up == false && me == false && le == false && lu == false {
